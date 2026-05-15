@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watermark Detection</title>
+<style>
+  :root {
+    --bg:#f5f5f5; --card:#fff; --text:#1a1a1a; --muted:#999;
+    --border:#e5e5e5; --accent:#2563eb; --green:#16a34a; --red:#dc2626;
+    --amber:#d97706; --radius:10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg); color:var(--text); min-height:100vh;
+    display:flex; flex-direction:column; align-items:center;
+    padding:24px 16px 60px;
+  }
+  .container { max-width:780px; width:100%; }
+
+  /* Header */
+  .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .header h1 { font-size:1.4rem; font-weight:600; letter-spacing:-0.02em; }
+  .lang-btn {
+    background:var(--card); border:1px solid var(--border); border-radius:6px;
+    padding:5px 12px; font-size:0.78rem; cursor:pointer; white-space:nowrap;
+    font-family:inherit; transition:all .15s;
+  }
+  .lang-btn:hover { border-color:var(--accent); color:var(--accent); }
+
+  /* Tab bar */
+  .tab-bar { display:flex; gap:0; margin-bottom:20px; border-bottom:2px solid var(--border); }
+  .tab {
+    padding:10px 24px; cursor:pointer; font-size:0.88rem; font-weight:500;
+    color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-2px;
+    transition:all .15s; position:relative; background:none; border-top:none;
+    border-left:none; border-right:none; font-family:inherit;
+  }
+  .tab:hover { color:var(--text); }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab .badge {
+    position:absolute; top:4px; right:6px;
+    background:var(--accent); color:#fff; font-size:0.6rem; min-width:18px;
+    height:18px; line-height:18px; text-align:center; border-radius:9px; padding:0 5px;
+  }
+
+  /* Panels */
+  .panel { display:none; }
+  .panel.active { display:block; }
+
+  /* Upload row */
+  .upload-row { display:flex; gap:12px; margin-bottom:14px; }
+  .upload-card {
+    flex:1; background:var(--card); border:2px dashed var(--border);
+    border-radius:var(--radius); padding:28px 14px; text-align:center;
+    cursor:pointer; transition:all .2s; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; min-height:120px;
+  }
+  .upload-card:hover, .upload-card.drag-over { border-color:var(--accent); background:#f8faff; }
+  .upload-card .icon { font-size:1.8rem; margin-bottom:6px; opacity:.45; }
+  .upload-card .label { font-weight:500; font-size:0.85rem; }
+  .upload-card .hint { font-size:0.7rem; color:var(--muted); margin-top:2px; }
+  .upload-card input { display:none; }
+
+  /* Thumbnails row */
+  .thumbs-row { display:flex; gap:8px; flex-wrap:wrap; min-height:0; transition:all .25s; }
+  .thumbs-row:empty { margin-bottom:0; }
+  .thumbs-row:not(:empty) { margin-bottom:12px; }
+  .thumb-item {
+    position:relative; width:68px; height:68px; border-radius:8px;
+    overflow:hidden; border:2px solid var(--border); transition:all .15s;
+    animation: fadeIn .25s ease;
+  }
+  @keyframes fadeIn { from { opacity:0; transform:scale(.9); } to { opacity:1; transform:scale(1); } }
+  .thumb-item img { width:100%; height:100%; object-fit:cover; }
+  .thumb-item .tag {
+    position:absolute; bottom:2px; right:2px;
+    background:rgba(0,0,0,.65); color:#fff; font-size:0.5rem;
+    padding:1px 5px; border-radius:3px;
+  }
+  .thumb-item .remove {
+    position:absolute; top:2px; right:2px;
+    width:18px; height:18px; border-radius:50%; background:rgba(0,0,0,.5);
+    color:#fff; font-size:0.6rem; line-height:18px; text-align:center;
+    cursor:pointer; opacity:0; transition:opacity .15s;
+  }
+  .thumb-item:hover .remove { opacity:1; }
+
+  /* Action bar */
+  .action-bar { display:flex; gap:10px; align-items:center; margin-bottom:22px; }
+  .btn {
+    padding:10px 22px; border-radius:8px; border:none; font-size:0.85rem;
+    font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s;
+  }
+  .btn.primary { background:var(--accent); color:#fff; }
+  .btn.primary:hover { opacity:.9; }
+  .btn.primary:disabled { opacity:.45; cursor:default; }
+  .btn.outline { background:var(--card); border:1px solid var(--border); color:var(--text); }
+  .btn.outline:hover { border-color:var(--accent); }
+  .btn.small { padding:5px 12px; font-size:0.75rem; border-radius:6px; background:var(--card); border:1px solid var(--border); cursor:pointer; font-family:inherit; }
+  .btn.small.danger { color:var(--red); border-color:var(--red); }
+  .file-count { font-size:0.82rem; color:var(--muted); margin-left:auto; }
+
+  /* Loading */
+  .loading-banner {
+    display:flex; align-items:center; gap:12px; padding:16px 20px;
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:18px; animation:fadeIn .3s ease;
+  }
+  .spinner { width:22px; height:22px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loading-text { font-size:0.88rem; }
+  .loading-sub { font-size:0.75rem; color:var(--muted); }
+
+  /* Result card */
+  .result-card {
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    margin-bottom:12px; overflow:hidden; animation:fadeIn .3s ease;
+  }
+  .result-top { display:flex; align-items:center; padding:16px 20px; gap:14px; }
+  .result-thumb { width:56px; height:56px; border-radius:6px; object-fit:cover; flex-shrink:0; background:#fafafa; }
+  .result-info { flex:1; min-width:0; }
+  .result-fname { font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .result-meta { font-size:0.75rem; color:var(--muted); margin-top:2px; }
+  .status-badge {
+    display:inline-flex; align-items:center; gap:5px; padding:4px 12px;
+    border-radius:20px; font-weight:600; font-size:0.75rem; white-space:nowrap;
+  }
+  .status-badge.found { background:#dcfce7; color:var(--green); }
+  .status-badge.not-found { background:#fee2e2; color:var(--red); }
+  .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+  .dot.green { background:var(--green); } .dot.red { background:var(--red); }
+
+  .result-preview { width:100%; max-height:260px; object-fit:contain; display:block; background:#fafafa; }
+  .result-body { padding:0 20px 16px; }
+  .metric-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:8px; margin-bottom:14px; }
+  .metric { background:#fafafa; border-radius:8px; padding:10px; text-align:center; }
+  .metric .value { font-size:1.2rem; font-weight:700; }
+  .metric .label { font-size:0.65rem; color:var(--muted); text-transform:uppercase; }
+  .metric.good .value { color:var(--green); } .metric.warn .value { color:var(--amber); } .metric.bad .value { color:var(--red); }
+
+  .bits-row { display:flex; flex-wrap:wrap; gap:2px; justify-content:center; margin:12px 0; }
+  .bit { width:15px; height:18px; border-radius:3px; font-family:"SF Mono",Consolas,monospace; font-size:0.55rem; line-height:18px; text-align:center; font-weight:600; }
+  .bit.match { background:#dcfce7; color:var(--green); }
+  .bit.mismatch { background:#fee2e2; color:var(--red); }
+
+  .attack-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); }
+  .attack-row:last-child { border-bottom:none; }
+  .attack-name { font-size:0.78rem; width:100px; }
+  .attack-bar { flex:1; height:6px; background:#f3f4f6; border-radius:3px; overflow:hidden; margin:0 10px; }
+  .attack-bar-fill { height:100%; border-radius:3px; transition:width .5s ease; }
+  .attack-bar-fill.high { background:var(--green); } .attack-bar-fill.mid { background:var(--amber); } .attack-bar-fill.low { background:var(--red); }
+  .attack-val { font-size:0.72rem; color:var(--muted); width:42px; text-align:right; }
+
+  .section-label { font-size:0.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin:14px 0 8px; }
+
+  .details-toggle {
+    display:block; width:100%; text-align:center; padding:8px; margin-top:8px;
+    background:#fafafa; border:1px solid var(--border); border-radius:6px;
+    cursor:pointer; font-family:inherit; font-size:0.8rem; color:var(--muted); transition:all .15s;
+  }
+  .details-toggle:hover { border-color:var(--accent); color:var(--accent); }
+  .details-panel { display:none; }
+  .details-panel.open { display:block; }
+
+  /* History panel */
+  .history-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:16px; }
+  .history-toolbar .count { font-size:0.82rem; color:var(--muted); margin-left:auto; }
+  .history-empty { text-align:center; padding:60px 20px; color:var(--muted); }
+  .history-empty .icon { font-size:3rem; opacity:.2; margin-bottom:12px; }
+
+  .history-card {
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px 16px; margin-bottom:8px; display:flex; align-items:center; gap:14px;
+    cursor:pointer; transition:all .12s;
+  }
+  .history-card:hover { border-color:var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.04); }
+  .history-thumb { width:52px; height:52px; border-radius:6px; object-fit:cover; flex-shrink:0; background:#fafafa; }
+  .history-info { flex:1; min-width:0; }
+  .history-fname { font-weight:500; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .history-time { font-size:0.7rem; color:var(--muted); margin-top:2px; }
+  .history-actions { display:flex; gap:6px; flex-shrink:0; }
+
+  /* History detail modal */
+  .modal-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:100;
+    display:none; align-items:flex-start; justify-content:center; padding-top:40px;
+  }
+  .modal-overlay.open { display:flex; }
+  .modal {
+    background:var(--card); border-radius:var(--radius); width:680px; max-width:95vw;
+    max-height:85vh; overflow-y:auto; box-shadow:0 8px 40px rgba(0,0,0,.12);
+    animation:slideUp .2s ease;
+  }
+  @keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+  .modal-close {
+    position:sticky; top:0; float:right; z-index:1;
+    background:var(--card); border:none; font-size:1.4rem; cursor:pointer;
+    padding:12px 16px; color:var(--muted);
+  }
+
+  /* Footer */
+  .footer { margin-top:40px; font-size:0.7rem; color:var(--muted); text-align:center; }
+  .footer code { background:#f3f4f6; padding:2px 5px; border-radius:3px; }
+
+  @media (max-width:540px) {
+    .upload-row { flex-direction:column; }
+    .header { flex-direction:column; align-items:flex-start; gap:6px; }
+    .result-top { flex-wrap:wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- Header -->
+<div class="header">
+  <h1 data-i18n="title">Stable Signature 水印检测</h1>
+  <button class="lang-btn" onclick="toggleLang()">English</button>
+</div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab active" data-tab="detect" onclick="switchTab('detect')">
+    <span data-i18n="tab_detect">检测</span>
+  </button>
+  <button class="tab" data-tab="history" onclick="switchTab('history')" id="historyTab">
+    <span data-i18n="tab_history">历史记录</span>
+    <span class="badge" id="historyBadge" style="display:none">0</span>
+  </button>
+</div>
+
+<!-- ===================== DETECT PANEL ===================== -->
+<div class="panel active" id="panel-detect">
+
+  <div class="upload-row">
+    <div class="upload-card" id="imgZone" onclick="document.getElementById('imgInput').click()">
+      <div class="icon">&#128444;</div>
+      <div class="label" data-i18n="up_img">上传图片</div>
+      <div class="hint" data-i18n="up_img_hint">JPG, PNG ・ 多选</div>
+      <input type="file" id="imgInput" accept="image/*" multiple onchange="handleImages(this.files)">
+    </div>
+    <div class="upload-card" id="vidZone" onclick="document.getElementById('vidInput').click()">
+      <div class="icon">&#127910;</div>
+      <div class="label" data-i18n="up_video">上传视频</div>
+      <div class="hint" data-i18n="up_video_hint">MP4, MOV ・ 自动截帧</div>
+      <input type="file" id="vidInput" accept="video/*" onchange="handleVideo(this.files[0])">
+    </div>
+  </div>
+
+  <div class="thumbs-row" id="thumbsRow"></div>
+
+  <div class="action-bar">
+    <button class="btn primary" id="detectBtn" onclick="startDetection()" disabled data-i18n="btn_detect">开始检测</button>
+    <button class="btn outline" onclick="clearAll()" data-i18n="btn_clear">清空</button>
+    <span class="file-count" id="fileCount"></span>
+  </div>
+
+  <div id="loadingArea"></div>
+  <div id="resultsArea"></div>
+
+</div>
+
+<!-- ===================== HISTORY PANEL ===================== -->
+<div class="panel" id="panel-history">
+  <div class="history-toolbar">
+    <button class="btn outline" onclick="loadHistory()" data-i18n="hst_refresh">刷新</button>
+    <button class="btn small danger" onclick="clearHistory()" data-i18n="hst_clear_all">清空全部</button>
+    <span class="count" id="historyCount"></span>
+  </div>
+  <div id="historyList"></div>
+</div>
+
+<!-- Modal for history detail -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<div class="footer">
+  <code>facebookresearch/stable_signature</code> &middot; 48-bit &middot; PyTorch 2.4
+</div>
+
+</div><!-- /container -->
+
+<!-- ============================================================ -->
+<!-- SCRIPTS -->
+<!-- ============================================================ -->
+<script>
+// ============== i18n ==============
+const I18N = {
+  zh: {
+    title:'Stable Signature 水印检测', tab_detect:'检测', tab_history:'历史记录',
+    up_img:'上传图片', up_img_hint:'JPG、PNG ・ 多选',
+    up_video:'上传视频', up_video_hint:'MP4、MOV ・ 自动截帧',
+    btn_detect:'开始检测', btn_clear:'清空',
+    files_n:'已选 {n} 个文件',
+    loading:'正在加载模型...', analyzing:'正在分析 ({current}/{total})...',
+    found:'检测到水印', not_found:'未检测到水印',
+    confidence:'置信度', bit_acc:'比特准确率', resolution:'分辨率', file_size:'大小',
+    bits_title:'48-bit 水印比特', attacks_title:'攻击鲁棒性',
+    show_details:'显示详情', hide_details:'隐藏详情',
+    video_info:'视频: {n} 帧, {d}s, 采样第 {f} 帧',
+    error:'错误', no_files:'请先选择文件',
+    hst_refresh:'刷新', hst_clear_all:'清空全部',
+    hst_empty:'暂无历史记录', hst_empty_hint:'检测结果将自动保存在这里',
+    hst_count:'共 {n} 条',
+  },
+  en: {
+    title:'Stable Signature Watermark Detection', tab_detect:'Detect', tab_history:'History',
+    up_img:'Upload Images', up_img_hint:'JPG, PNG &middot; multi',
+    up_video:'Upload Video', up_video_hint:'MP4, MOV &middot; frame sample',
+    btn_detect:'Detect', btn_clear:'Clear',
+    files_n:'{n} file(s) selected',
+    loading:'Loading models...', analyzing:'Analyzing ({current}/{total})...',
+    found:'Watermark Detected', not_found:'No Watermark Found',
+    confidence:'Confidence', bit_acc:'Bit Accuracy', resolution:'Resolution', file_size:'Size',
+    bits_title:'48-bit Watermark', attacks_title:'Attack Robustness',
+    show_details:'Show Details', hide_details:'Hide Details',
+    video_info:'Video: {n} frames, {d}s, sampled frame #{f}',
+    error:'Error', no_files:'Please select files first',
+    hst_refresh:'Refresh', hst_clear_all:'Clear All',
+    hst_empty:'No history yet', hst_empty_hint:'Detection results will appear here',
+    hst_count:'{n} records',
+  }
+};
+let lang = 'zh';
+function t(key, params) {
+  let s = I18N[lang][key] || key;
+  if (params) for (const [k,v] of Object.entries(params)) s = s.replace(`{${k}}`, v);
+  return s;
+}
+function toggleLang() {
+  lang = lang === 'zh' ? 'en' : 'zh';
+  document.querySelector('.lang-btn').textContent = lang === 'zh' ? 'English' : '中文';
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  refreshI18n();
+}
+function refreshI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  // Dynamic elements
+  updateFileCount(); updateHistoryBadge();
+}
+
+// ============== Tabs ==============
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  if (name === 'history') loadHistory();
+}
+function updateHistoryBadge() {
+  fetch('/api/history').then(r => r.json()).then(data => {
+    const badge = document.getElementById('historyBadge');
+    badge.textContent = data.length;
+    badge.style.display = data.length > 0 ? 'inline' : 'none';
+    document.getElementById('historyCount').textContent = data.length ? t('hst_count',{n:data.length}) : '';
+  }).catch(()=>{});
+}
+
+// ============== State ==============
+let pendingImages = [];
+let pendingVideo = null;
+
+function updateFileCount() {
+  const n = pendingImages.length + (pendingVideo ? 1 : 0);
+  const btn = document.getElementById('detectBtn');
+  btn.disabled = n === 0;
+  btn.textContent = n === 0 ? t('btn_detect') : (n > 1 ? `${t('btn_detect')} (${n})` : t('btn_detect'));
+  document.getElementById('fileCount').textContent = n > 0 ? t('files_n',{n}) : '';
+}
+
+// ============== Drag & Drop ==============
+['imgZone','vidZone'].forEach(id => {
+  const z = document.getElementById(id);
+  z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('drag-over'); });
+  z.addEventListener('dragleave', () => z.classList.remove('drag-over'));
+  z.addEventListener('drop', e => {
+    e.preventDefault(); z.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (id === 'imgZone') handleImages(files);
+    else if (files[0] && files[0].type.startsWith('video/')) handleVideo(files[0]);
+  });
+});
+
+function handleImages(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    if (pendingImages.find(x => x.name === f.name)) continue;
+    const reader = new FileReader();
+    reader.onload = e => { pendingImages.push({name:f.name, dataURL:e.target.result, blob:f}); renderThumbs(); updateFileCount(); };
+    reader.readAsDataURL(f);
+  }
+  document.getElementById('imgInput').value = '';
+}
+
+function handleVideo(file) {
+  if (!file || !file.type.startsWith('video/')) return;
+  pendingVideo = { name: file.name, blob: file };
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.onloadeddata = () => { v.currentTime = v.duration/2 || 0; };
+  v.onseeked = () => {
+    const c = document.createElement('canvas');
+    c.width = 320; c.height = 180;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    pendingVideo.thumbURL = c.toDataURL('image/jpeg', 0.7);
+    URL.revokeObjectURL(url);
+    renderThumbs(); updateFileCount();
+  };
+  v.src = url; v.load();
+  document.getElementById('vidInput').value = '';
+}
+
+function removeImage(idx) {
+  pendingImages.splice(idx, 1); renderThumbs(); updateFileCount();
+}
+function removeVideo() {
+  pendingVideo = null; renderThumbs(); updateFileCount();
+}
+
+function renderThumbs() {
+  let html = '';
+  pendingImages.forEach((img, i) => {
+    html += `<div class="thumb-item"><img src="${img.dataURL}" alt="${img.name}"><span class="remove" onclick="event.stopPropagation();removeImage(${i})">&times;</span></div>`;
+  });
+  if (pendingVideo) {
+    html += `<div class="thumb-item"><img src="${pendingVideo.thumbURL||''}" alt="${pendingVideo.name}"><span class="tag">VID</span><span class="remove" onclick="event.stopPropagation();removeVideo()">&times;</span></div>`;
+  }
+  document.getElementById('thumbsRow').innerHTML = html;
+}
+
+function clearAll() {
+  pendingImages = []; pendingVideo = null;
+  document.getElementById('thumbsRow').innerHTML = '';
+  document.getElementById('resultsArea').innerHTML = '';
+  document.getElementById('loadingArea').innerHTML = '';
+  updateFileCount();
+}
+
+// ============== Detection ==============
+async function startDetection() {
+  if (pendingImages.length === 0 && !pendingVideo) { alert(t('no_files')); return; }
+  const total = pendingImages.length + (pendingVideo ? 1 : 0);
+  document.getElementById('loadingArea').innerHTML = `
+    <div class="loading-banner"><div class="spinner"></div><div><div class="loading-text">${t('analyzing',{current:0,total})}</div><div class="loading-sub">${total} ${lang==='zh'?'个文件':'files'}</div></div></div>`;
+  document.getElementById('resultsArea').innerHTML = '';
+
+  const allResults = [];
+  let done = 0;
+  function updateProgress() {
+    done++;
+    document.getElementById('loadingArea').innerHTML = done < total
+      ? `<div class="loading-banner"><div class="spinner"></div><div><div class="loading-text">${t('analyzing',{current:done,total})}</div></div></div>`
+      : '';
+  }
+
+  if (pendingImages.length > 0) {
+    const fd = new FormData();
+    for (const img of pendingImages) fd.append('images', img.blob, img.name);
+    try {
+      const resp = await fetch('/api/detect_bulk', { method:'POST', body:fd });
+      const data = await resp.json();
+      if (data.results) { allResults.push(...data.results); done = allResults.length; }
+    } catch(e) { allResults.push({filename:'batch', error:e.message}); done++; }
+  }
+
+  if (pendingVideo) {
+    const fd = new FormData();
+    fd.append('video', pendingVideo.blob, pendingVideo.name);
+    try {
+      const resp = await fetch('/api/detect_video', { method:'POST', body:fd });
+      allResults.push(await resp.json()); done++;
+    } catch(e) { allResults.push({filename:pendingVideo.name, error:e.message}); done++; }
+  }
+
+  updateProgress();
+  document.getElementById('resultsArea').innerHTML = renderResults(allResults);
+  updateHistoryBadge();
+}
+
+// ============== Render results ==============
+function renderResults(results) {
+  let html = '';
+  for (const d of results) {
+    if (d.error) {
+      html += `<div class="result-card"><div class="result-top"><div class="result-info"><div class="result-fname">${d.filename}</div><div style="color:var(--red);margin-top:4px;">${t('error')}: ${d.error}</div></div></div></div>`;
+      continue;
+    }
+    const found = d.has_watermark;
+    const detailsId = 'det_' + Math.random().toString(36).slice(2,8);
+
+    html += `
+    <div class="result-card">
+      <div class="result-top">
+        <img class="result-thumb" src="${d.thumb||d.preview||''}" alt="">
+        <div class="result-info">
+          <div class="result-fname">${d.filename}</div>
+          <div class="result-meta">${d.dimensions||'?'} &middot; ${d.size_kb||0} KB${d.video_info ? ' &middot; '+t('video_info',d.video_info) : ''}</div>
+        </div>
+        <div class="status-badge ${found?'found':'not-found'}"><span class="dot ${found?'green':'red'}"></span>${found?t('found'):t('not_found')}</div>
+      </div>
+      ${d.preview && !d.video_info ? `<img class="result-preview" src="${d.preview}" alt="">` : ''}
+      <div class="result-body">
+        <div class="metric-grid">
+          <div class="metric ${d.bit_accuracy>0.85?'good':'warn'}"><div class="value">${(d.bit_accuracy*100).toFixed(1)}%</div><div class="label">${t('bit_acc')}</div></div>
+          <div class="metric ${d.confidence>0.7?'good':'bad'}"><div class="value">${(d.confidence*100).toFixed(1)}%</div><div class="label">${t('confidence')}</div></div>
+          <div class="metric"><div class="value">${d.dimensions||'?'}</div><div class="label">${t('resolution')}</div></div>
+          <div class="metric"><div class="value">${d.size_kb||0} KB</div><div class="label">${t('file_size')}</div></div>
+        </div>`;
+
+    // Bits + attacks content
+    const key = '111010110101000001010111010011010100010000100111';
+    let detailsHTML = createDetailsHTML(d, key);
+
+    if (!found) {
+      html += `<button class="details-toggle" onclick="const p=document.getElementById('${detailsId}');p.classList.toggle('open');this.textContent=p.classList.contains('open')?'${t('hide_details')}':'${t('show_details')}'">${t('show_details')}</button>`;
+      html += `<div class="details-panel" id="${detailsId}">${detailsHTML}</div>`;
+    } else {
+      html += detailsHTML;
+    }
+    html += `</div></div>`;
+  }
+  return html;
+}
+
+function createDetailsHTML(d, key) {
+  let html = '';
+  // Bits
+  if (d.bits && d.bits.length === 48) {
+    html += `<div class="section-label">${t('bits_title')}</div><div class="bits-row">`;
+    for (let i = 0; i < 48; i++) {
+      html += `<span class="bit ${d.bits[i]===key[i]?'match':'mismatch'}">${d.bits[i]}</span>`;
+    }
+    html += `</div>`;
+  }
+  // Attacks
+  const attacks = d.attack_results || {};
+  if (Object.keys(attacks).length > 0) {
+    html += `<div class="section-label">${t('attacks_title')}</div>`;
+    for (const [name, acc] of Object.entries(attacks)) {
+      const pct = (acc*100).toFixed(1);
+      html += `<div class="attack-row"><span class="attack-name">${name}</span><div class="attack-bar"><div class="attack-bar-fill ${acc>0.85?'high':(acc>0.7?'mid':'low')}" style="width:${pct}%"></div></div><span class="attack-val">${pct}%</span></div>`;
+    }
+  }
+  return html;
+}
+
+// ============== History ==============
+async function loadHistory() {
+  try {
+    const data = await (await fetch('/api/history')).json();
+    const list = document.getElementById('historyList');
+    if (data.length === 0) {
+      list.innerHTML = `<div class="history-empty"><div class="icon">&#128218;</div><div>${t('hst_empty')}</div></div>`;
+    } else {
+      list.innerHTML = data.map((d,i) => `
+        <div class="history-card" onclick="showHistoryDetail('${d.id}')">
+          <img class="history-thumb" src="${d.thumb||d.preview||''}" alt="">
+          <div class="history-info">
+            <div class="history-fname">${d.filename}</div>
+            <div class="history-time">${d.timestamp||''} &middot; ${d.dimensions||''}</div>
+          </div>
+          <div class="status-badge ${d.has_watermark?'found':'not-found'}"><span class="dot ${d.has_watermark?'green':'red'}"></span>${d.has_watermark?t('found'):t('not_found')}</div>
+          <div class="history-actions">
+            <button class="btn small danger" onclick="event.stopPropagation();deleteHistoryItem('${d.id}')">&#10005;</button>
+          </div>
+        </div>`).join('');
+    }
+    updateHistoryBadge();
+  } catch(e) { console.error(e); }
+}
+
+async function showHistoryDetail(id) {
+  const data = await (await fetch('/api/history')).json();
+  const d = data.find(e => e.id === id);
+  if (!d) return;
+  const key = '111010110101000001010111010011010100010000100111';
+  const found = d.has_watermark;
+  const detailsHTML = createDetailsHTML(d, key);
+  document.getElementById('modalContent').innerHTML = `
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div style="padding:20px 24px 24px">
+      <div class="result-top" style="padding:0">
+        <img class="result-thumb" src="${d.thumb||d.preview||''}" alt="">
+        <div class="result-info">
+          <div class="result-fname">${d.filename}</div>
+          <div class="result-meta">${d.timestamp||''} &middot; ${d.dimensions||'?'} &middot; ${d.size_kb||0} KB</div>
+        </div>
+        <div class="status-badge ${found?'found':'not-found'}"><span class="dot ${found?'green':'red'}"></span>${found?t('found'):t('not_found')}</div>
+      </div>
+      ${d.preview ? `<img class="result-preview" src="${d.preview}" alt="" style="margin:12px 0">` : ''}
+      ${detailsHTML}
+    </div>`;
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+async function deleteHistoryItem(id) {
+  await fetch(`/api/history/${id}`, { method:'DELETE' });
+  loadHistory();
+}
+
+async function clearHistory() {
+  if (!confirm(lang==='zh'?'确定清空全部历史记录？':'Clear all history?')) return;
+  await fetch('/api/history', { method:'DELETE' });
+  loadHistory();
+}
+
+// Init
+updateFileCount();
+updateHistoryBadge();
+</script>
+</body>
+</html>

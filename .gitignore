@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output / runtime
+output/
+*.log
+
+# SD 2.1 checkpoint — see download_model.py
+sd/stable-diffusion-2-1-base/v2-1_512-ema-pruned.ckpt
