@@ -1,15 +1,13 @@
 """
-Core watermark detection and extraction engine.
+Detection-only watermark extraction engine.
 
-Self-contained — all paths are relative to this module's directory.
-Only external dependency: SD2.1 VAE checkpoint (~5GB), configurable via path.
+Uses the pretrained msg_decoder (torchscript, ~1.2 MB) to extract
+48-bit Stable Signature watermarks from images and videos.
+No SD2.1 VAE or finetuned decoder required.
 """
 
 import os
 import sys
-import json
-import io
-import copy
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -18,24 +16,15 @@ from typing import List, Optional
 
 import numpy as np
 import torch
-import torch.nn as nn
 from torchvision import transforms
-from torchvision.utils import save_image
-from PIL import Image, ImageDraw, ImageFont
-from omegaconf import OmegaConf
+from PIL import Image
 
-# ---- Path setup: make this module's directory the anchor ----
+# Path setup: module root for utils.py / utils_img.py
 _MODULE_DIR = Path(__file__).resolve().parent
-_SRC_DIR = _MODULE_DIR / "src"
-# Need BOTH the module dir (for utils.py etc.) and src/ (for ldm, loss)
-for _p in [str(_MODULE_DIR), str(_SRC_DIR)]:
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if str(_MODULE_DIR) not in sys.path:
+    sys.path.insert(0, str(_MODULE_DIR))
 
-# Import local utils (already patched to avoid augly)
-import utils
 import utils_img
-import utils_model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -93,34 +82,20 @@ class VideoWatermarkResult:
 
 
 # ======================================================================
-# Main detector
+# Detection-only detector (no SD / LDM dependency)
 # ======================================================================
 
 class WatermarkDetector:
-    """Stable Signature watermark detection and extraction.
+    """
+    Stable Signature watermark detector (detection / extraction only).
 
-    Parameters
-    ----------
-    ldm_ckpt : str or Path, optional
-        Path to SD2.1 VAE checkpoint (v2-1_512-ema-pruned.ckpt, ~5GB).
-        Default: looks in ./sd/stable-diffusion-2-1-base/
-    msg_decoder_path : str or Path, optional
-        Path to 48-bit torchscript decoder. Default: ./models/
-    finetune_ckpt : str or Path, optional
-        Path to finetuned decoder weights. Default: auto-detect in ./models/
-    key_str : str, optional
-        48-bit watermark key for verification.
-    img_size : int
-        Processing resolution.
-    device_str : str, optional
-        Torch device.
+    Only requires the 48-bit msg_decoder (~1.2 MB torchscript model).
+    Embedding and attack robustness testing are NOT available in this mode.
     """
 
     def __init__(
         self,
-        ldm_ckpt: str = None,
         msg_decoder_path: str = None,
-        finetune_ckpt: str = None,
         key_str: str = "111010110101000001010111010011010100010000100111",
         img_size: int = 256,
         device_str: str = None,
@@ -129,114 +104,54 @@ class WatermarkDetector:
         self.key_str = key_str
         self.num_bits = len(key_str)
 
-        # Resolve paths relative to module directory
         _m = _MODULE_DIR
-
-        # SD2.1 VAE checkpoint (large file, may be symlinked elsewhere)
-        if ldm_ckpt:
-            self.ldm_ckpt = Path(ldm_ckpt)
-        else:
-            self.ldm_ckpt = _m / "sd" / "stable-diffusion-2-1-base" / "v2-1_512-ema-pruned.ckpt"
-
-        self.ldm_config = _m / "sd" / "stable-diffusion-2-1-base" / "v2-inference.yaml"
-
-        # Message decoder
         if msg_decoder_path:
             self.msg_decoder_path = Path(msg_decoder_path)
         else:
             self.msg_decoder_path = _m / "models" / "dec_48b_whit.torchscript.pt"
 
-        # Finetuned decoder checkpoint
-        if finetune_ckpt:
-            self.finetune_ckpt = Path(finetune_ckpt)
-        else:
-            candidate = _m / "models" / "checkpoint_000.pth"
-            self.finetune_ckpt = candidate if candidate.exists() else None
-
         self.device = torch.device(device_str or ("cuda" if torch.cuda.is_available() else "cpu"))
         self._loaded = False
 
     # ------------------------------------------------------------------
-    # Lazy model loading
+    # Lazy model loading (msg_decoder only)
     # ------------------------------------------------------------------
 
     def _ensure_models(self):
         if self._loaded:
             return
-        print(f"[WatermarkDetector] Loading models on {self.device}...")
-
-        # 1. Message decoder (always needed, ~1.2MB)
-        print("  [1/3] Message decoder...")
+        print(f"[WatermarkDetector] Loading msg_decoder on {self.device}...")
         self.msg_decoder = torch.jit.load(str(self.msg_decoder_path)).to(self.device)
         self.msg_decoder.eval()
 
-        # 2. SD2.1 VAE (~5GB, needed for embedding path and attack testing)
-        print("  [2/3] SD2.1 VAE...")
-        if not self.ldm_ckpt.exists():
-            print(f"  WARNING: SD checkpoint not found at {self.ldm_ckpt}")
-            print(f"  Detection-only mode (no embedding, no attack robustness tests)")
-            self.ldm_ae = None
-        else:
-            config = OmegaConf.load(str(self.ldm_config))
-            ldm_full = utils_model.load_model_from_config(config, str(self.ldm_ckpt))
-            self.ldm_ae = ldm_full.first_stage_model
-            self.ldm_ae.to(self.device)
-            self.ldm_ae.eval()
-
-        # 3. Finetuned decoder (optional, ~567MB)
-        print("  [3/3] Finetuned decoder...")
-        if self.finetune_ckpt and self.finetune_ckpt.exists() and self.ldm_ae is not None:
-            self.ldm_decoder = copy.deepcopy(self.ldm_ae)
-            self.ldm_decoder.to(self.device)
-            self.ldm_decoder.encoder = nn.Identity()
-            self.ldm_decoder.quant_conv = nn.Identity()
-            ckpt = torch.load(str(self.finetune_ckpt), map_location="cpu")
-            self.ldm_decoder.load_state_dict(ckpt["ldm_decoder"], strict=False)
-            self.ldm_decoder.eval()
-        else:
-            self.ldm_decoder = None
-
-        # Key tensor
         self.key = torch.tensor(
             [c == "1" for c in self.key_str], dtype=torch.float32, device=self.device
         )
 
-        # Transforms
-        self._vqgan_transform = transforms.Compose([
+        # Image transform: normalize to ImageNet stats (what msg_decoder expects)
+        self._imnet_transform = transforms.Compose([
             transforms.Resize(self.img_size),
             transforms.CenterCrop(self.img_size),
             transforms.ToTensor(),
-            utils_img.normalize_vqgan,
-        ])
-        self._vqgan_to_imnet = transforms.Compose([
-            utils_img.unnormalize_vqgan,
             utils_img.normalize_img,
         ])
 
         self._loaded = True
-        print("[WatermarkDetector] Ready.")
+        print("[WatermarkDetector] Ready (detection-only mode).")
 
     # ------------------------------------------------------------------
     # Image detection
     # ------------------------------------------------------------------
 
     def detect(self, image_path: str) -> WatermarkResult:
-        """Detect and extract watermark from an image.
-
-        Returns WatermarkResult with:
-        - has_watermark: True if confidence > 0.7
-        - bits: extracted 48-bit string
-        - bit_accuracy: match rate vs known key
-        - confidence: detection strength (0-1)
-        """
+        """Detect and extract watermark from an image."""
         self._ensure_models()
 
         img_pil = Image.open(image_path).convert("RGB")
-        x = self._vqgan_transform(img_pil).unsqueeze(0).to(self.device)
+        x = self._imnet_transform(img_pil).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
-            x_imnet = self._vqgan_to_imnet(x)
-            decoded = self.msg_decoder(x_imnet)
+            decoded = self.msg_decoder(x)
             bits_binary = (decoded > 0).squeeze(0).tolist()
             bits_str = "".join("1" if b else "0" for b in bits_binary)
 
@@ -247,21 +162,6 @@ class WatermarkDetector:
         confidence = abs(bit_acc - 0.5) * 2.0
         has_watermark = confidence > 0.7
 
-        # Attack robustness (only if VAE + finetuned decoder available)
-        attack_results = {}
-        if self.ldm_decoder is not None:
-            with torch.no_grad():
-                z = self.ldm_ae.encode(x).mode()
-                x_w = self.ldm_decoder.decode(z)
-                for name, attack_fn in self._default_attacks().items():
-                    try:
-                        x_aug = attack_fn(self._vqgan_to_imnet(x_w))
-                        dec = self.msg_decoder(x_aug)
-                        diff = (~torch.logical_xor(dec > 0, self.key.unsqueeze(0) > 0))
-                        attack_results[name] = (torch.sum(diff, dim=-1).float() / self.num_bits).item()
-                    except Exception:
-                        attack_results[name] = None
-
         return WatermarkResult(
             image_path=str(image_path),
             has_watermark=has_watermark,
@@ -269,11 +169,10 @@ class WatermarkDetector:
             bit_accuracy=bit_acc,
             word_accuracy=1.0 if bit_acc == 1.0 else 0.0,
             confidence=confidence,
-            attack_results=attack_results,
         )
 
     # ------------------------------------------------------------------
-    # Video detection
+    # Video detection (frame sampling)
     # ------------------------------------------------------------------
 
     def detect_video(
@@ -301,7 +200,6 @@ class WatermarkDetector:
         frame_results = [self.detect(fp) for fp in frames]
         frames_with_wm = sum(1 for r in frame_results if r.has_watermark)
 
-        # Majority-vote consensus bits
         all_bits = [r.bits for r in frame_results]
         consensus = ""
         for i in range(self.num_bits):
@@ -315,7 +213,7 @@ class WatermarkDetector:
         consensus_accuracy = np.mean(agreements) if agreements else 0.0
 
         bit_mean = np.mean([r.bit_accuracy for r in frame_results])
-        confidence = max(abs(bit_mean - 0.5) * 2.0, frames_with_wm / len(frame_results))
+        confidence = max(abs(bit_mean - 0.5) * 2.0, frames_with_wm / max(len(frame_results), 1))
 
         if not save_frames:
             for fp in frames:
@@ -335,58 +233,15 @@ class WatermarkDetector:
             frame_results=frame_results,
         )
 
-    # ------------------------------------------------------------------
-    # Watermark embedding (requires finetuned decoder)
-    # ------------------------------------------------------------------
-
-    def embed(self, image_path: str, output_path: str) -> str:
-        """Embed watermark into an image and save to output_path.
-        Returns the path to the watermarked image.
-        """
-        self._ensure_models()
-        if self.ldm_decoder is None:
-            raise RuntimeError("Finetuned decoder not available. Embedding requires it.")
-
-        img_pil = Image.open(image_path).convert("RGB")
-        x = self._vqgan_transform(img_pil).unsqueeze(0).to(self.device)
-
-        with torch.no_grad():
-            z = self.ldm_ae.encode(x).mode()
-            x_w = self.ldm_decoder.decode(z)
-
-        save_image(torch.clamp(utils_img.unnormalize_vqgan(x_w), 0, 1), output_path, nrow=1)
-        return output_path
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _default_attacks() -> dict:
-        return {
-            "none": lambda x: x,
-            "jpeg_80": lambda x: utils_img.jpeg_compress(x, 80),
-            "jpeg_50": lambda x: utils_img.jpeg_compress(x, 50),
-            "crop_05": lambda x: utils_img.center_crop(x, 0.5),
-            "brightness_2": lambda x: utils_img.adjust_brightness(x, 2.0),
-            "contrast_2": lambda x: utils_img.adjust_contrast(x, 2.0),
-            "rot_25": lambda x: utils_img.rotate(x, 25),
-            "comb": lambda x: utils_img.jpeg_compress(
-                utils_img.adjust_brightness(utils_img.center_crop(x, 0.5), 1.5), 80
-            ),
-        }
-
     def unload(self):
-        """Release GPU memory."""
-        for attr in ("ldm_ae", "ldm_decoder", "msg_decoder"):
-            if hasattr(self, attr):
-                delattr(self, attr)
+        if hasattr(self, "msg_decoder"):
+            del self.msg_decoder
         self._loaded = False
         torch.cuda.empty_cache()
 
 
 # ======================================================================
-# Video frame extraction (ffmpeg)
+# Video frame extraction
 # ======================================================================
 
 def _extract_video_frames(
@@ -399,7 +254,6 @@ def _extract_video_frames(
     if not video_path.exists():
         raise FileNotFoundError(f"Video not found: {video_path}")
 
-    # Get duration via ffprobe
     try:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -443,10 +297,7 @@ def _extract_video_frames(
     return frame_paths
 
 
-# ======================================================================
 # Singleton
-# ======================================================================
-
 _instance: Optional[WatermarkDetector] = None
 
 def get_detector(**kwargs) -> WatermarkDetector:

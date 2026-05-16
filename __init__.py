@@ -1,9 +1,9 @@
 """
-Stable Signature Watermark Detection Module
-============================================
-Self-contained watermark detection & extraction for A-ST platform.
+Stable Signature Watermark Detection Module (detection-only)
+=============================================================
+Lightweight watermark detection & extraction — no SD/VAE dependency.
 
-Based on facebookresearch/stable_signature.
+Only requires the 48-bit msg_decoder (~1.2 MB torchscript model).
 Supports images and videos (via frame sampling).
 
 Usage:
@@ -20,13 +20,13 @@ from .detector import WatermarkDetector, WatermarkResult, VideoWatermarkResult
 from .api import (
     detect_image, extract_watermark, verify_watermark,
     detect_video, batch_detect_images, batch_detect_videos,
-    generate_watermarked_image, get_module_info,
+    get_module_info,
 )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0-detection"
 __all__ = [
     "WatermarkDetector", "WatermarkResult", "VideoWatermarkResult",
     "detect_image", "extract_watermark", "verify_watermark",
     "detect_video", "batch_detect_images", "batch_detect_videos",
-    "generate_watermarked_image", "get_module_info",
+    "get_module_info",
 ]

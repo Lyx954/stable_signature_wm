@@ -97,18 +97,6 @@ def batch_detect_videos(
     return results
 
 
-def generate_watermarked_image(
-    image_path: str,
-    output_path: str,
-    key_str: str = "111010110101000001010111010011010100010000100111",
-    img_size: int = 256,
-) -> dict:
-    """Embed a watermark into an image (requires SD2.1 VAE + finetuned decoder)."""
-    detector = get_detector(key_str=key_str, img_size=img_size)
-    out = detector.embed(image_path, output_path)
-    return {"output_path": out, "key": key_str}
-
-
 def get_module_info() -> dict:
     """Return module metadata for system integration."""
     from . import __version__
@@ -124,6 +112,7 @@ def get_module_info() -> dict:
         "api_functions": [
             "detect_image", "extract_watermark", "verify_watermark",
             "detect_video", "batch_detect_images", "batch_detect_videos",
-            "generate_watermarked_image", "get_module_info",
+            "get_module_info",
         ],
+        "mode": "detection-only",
     }

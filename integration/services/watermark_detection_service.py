@@ -45,10 +45,7 @@ def detect_watermark(
     file_type: str = "image",
     num_frames: int = 5,
 ) -> dict:
-    """Detect watermark in an image or video.
-
-    Returns dict compatible with WatermarkDetectionResponse.
-    """
+    """Detect watermark in an image or video (detection-only)."""
     detector = _get_detector()
 
     if image_base64:
@@ -85,12 +82,6 @@ def detect_watermark(
             "expected_key": key_str,
             "dimensions": resp.get("dimensions"),
             "size_kb": resp.get("size_kb"),
-            "attack_results": [
-                {"attack_name": k, "bit_accuracy": v}
-                for k, v in resp.get("attack_results", {}).items()
-                if v is not None
-            ],
-            "video_info": resp.get("video_info"),
             "error": None,
         }
     except Exception as e:
