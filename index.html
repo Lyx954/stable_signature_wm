@@ -538,6 +538,7 @@ async function startEmbedding() {
     // Store for download
     window._wmData = data;
     status.textContent = t('emb_ok');
+    updateHistoryBadge();
   } catch(e) {
     status.textContent = t('error') + ': ' + e.message;
   }
@@ -672,7 +673,7 @@ async function loadHistory() {
         <div class="history-card" onclick="showHistoryDetail('${d.id}')">
           <img class="history-thumb" src="${d.thumb||d.preview||''}" alt="">
           <div class="history-info">
-            <div class="history-fname">${d.filename}</div>
+            <div class="history-fname">${d.type==='embed' ? '🏷 ' : ''}${d.filename}</div>
             <div class="history-time">${d.timestamp||''} &middot; ${d.dimensions||''}</div>
           </div>
           <div class="status-badge ${d.has_watermark?'found':'not-found'}"><span class="dot ${d.has_watermark?'green':'red'}"></span>${d.has_watermark?t('found'):t('not_found')}</div>

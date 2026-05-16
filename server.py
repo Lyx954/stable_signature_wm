@@ -237,6 +237,24 @@ def api_embed():
 
         dimensions = f"{orig_w} x {orig_h}"
 
+        # ---- Save to history ----
+        history_entry = {
+            "filename": file.filename,
+            "type": "embed",
+            "size_kb": round(len(img_bytes) / 1024, 1),
+            "dimensions": dimensions,
+            "has_watermark": verify.has_watermark,
+            "confidence": round(verify.confidence, 4),
+            "bit_accuracy": round(verify.bit_accuracy, 4),
+            "word_accuracy": round(verify.word_accuracy, 4),
+            "bits": verify.bits,
+            "bits_display": f"{verify.bits[:24]} ... {verify.bits[24:]}",
+            "psnr_db": round(psnr, 1),
+            "preview": _make_preview(wm_final),
+            "thumb": _make_thumb(wm_final),
+        }
+        _save_to_history(history_entry)
+
         # Cleanup
         for p in [tmp_in, tmp_out, tmp_out_full]:
             p.unlink(missing_ok=True)
