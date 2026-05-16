@@ -176,6 +176,65 @@ def api_detect_video():
         return jsonify({"error": f"Video processing failed: {str(e)}"}), 500
 
 
+@app.route("/api/embed", methods=["POST"])
+def api_embed():
+    """Embed a 48-bit watermark into an image."""
+    if "image" not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+    file = request.files["image"]
+    if not file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    try:
+        img_bytes = file.read()
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+
+        # Save input
+        tmp_in = _MODULE_DIR / "output" / f"_embed_in_{int(time.time()*1e6)}.jpg"
+        tmp_out = _MODULE_DIR / "output" / f"_embed_out_{int(time.time()*1e6)}.png"
+        tmp_in.parent.mkdir(exist_ok=True)
+        img.save(str(tmp_in), "JPEG", quality=95)
+
+        # Embed watermark
+        d = get_detector()
+        if d.ldm_decoder is None:
+            return jsonify({"error": "Embedding not available: finetuned decoder or SD checkpoint missing. Run download_model.py first."}), 503
+
+        d.embed(str(tmp_in), str(tmp_out))
+
+        # Verify the embedded image
+        verify = d.detect(str(tmp_out))
+
+        # Build response
+        import numpy as np
+        orig_arr = np.array(img.resize((256, 256))).astype(float)
+        wm_img = Image.open(str(tmp_out)).convert("RGB")
+        wm_arr = np.array(wm_img.resize((256, 256))).astype(float)
+        mse = np.mean((orig_arr - wm_arr) ** 2)
+        psnr = 20 * np.log10(255) - 10 * np.log10(mse) if mse > 0 else 100
+
+        # Read output as base64
+        with open(str(tmp_out), "rb") as f:
+            out_b64 = base64.b64encode(f.read()).decode()
+
+        # Cleanup
+        tmp_in.unlink(missing_ok=True)
+        tmp_out.unlink(missing_ok=True)
+
+        return jsonify({
+            "filename": file.filename,
+            "output_base64": f"data:image/png;base64,{out_b64}",
+            "psnr_db": round(psnr, 1),
+            "key": d.key_str,
+            "verification": {
+                "has_watermark": verify.has_watermark,
+                "bit_accuracy": round(verify.bit_accuracy, 4),
+                "confidence": round(verify.confidence, 4),
+            },
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/history", methods=["GET", "DELETE"])
 def api_history():
     if request.method == "DELETE":
