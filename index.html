@@ -236,10 +236,13 @@
 
 <!-- ===================== EMBED PANEL ===================== -->
 <div class="panel" id="panel-embed">
-  <div class="upload-card" id="embedZone" style="max-width:480px;margin:0 auto 16px" onclick="document.getElementById('embedInput').click()">
+  <div class="upload-card" id="embedZone" style="max-width:480px;margin:0 auto 16px" onclick="document.getElementById('embedInput').click()"
+       ondragover="event.preventDefault();this.classList.add('drag-over')"
+       ondragleave="this.classList.remove('drag-over')"
+       ondrop="event.preventDefault();this.classList.remove('drag-over');const f=event.dataTransfer.files[0];if(f&&f.type.startsWith('image/'))handleEmbedFile(f)">
     <div class="icon">🖼</div>
     <div class="label" data-i18n="emb_up">选择原图</div>
-    <div class="hint" data-i18n="emb_up_hint">JPG, PNG · 将嵌入 48-bit 水印</div>
+    <div class="hint" data-i18n="emb_up_hint">JPG, PNG · 拖拽或点击 · 将嵌入 48-bit 水印</div>
     <input type="file" id="embedInput" accept="image/*" onchange="handleEmbedFile(this.files[0])">
   </div>
 
@@ -269,7 +272,7 @@
         <div class="metric good"><div class="value" id="embPsnr">--</div><div class="label">PSNR</div></div>
         <div class="metric good"><div class="value" id="embBitAcc">--</div><div class="label" data-i18n="bit_acc">比特准确率</div></div>
         <div class="metric good"><div class="value" id="embConf">--</div><div class="label" data-i18n="confidence">置信度</div></div>
-        <div class="metric"><div class="value" id="embKey">48-bit</div><div class="label">Key</div></div>
+        <div class="metric"><div class="value" id="embDims">--</div><div class="label" data-i18n="resolution">分辨率</div></div>
       </div>
       <button class="btn primary" onclick="downloadWatermarked()" data-i18n="emb_dl">下载水印图</button>
     </div>
@@ -529,7 +532,7 @@ async function startEmbedding() {
     document.getElementById('embPsnr').textContent = data.psnr_db + ' dB';
     document.getElementById('embBitAcc').textContent = (data.verification.bit_accuracy*100).toFixed(1)+'%';
     document.getElementById('embConf').textContent = (data.verification.confidence*100).toFixed(1)+'%';
-    document.getElementById('embKey').textContent = data.key ? data.key.slice(0,12)+'...' : '48-bit';
+    document.getElementById('embDims').textContent = data.dimensions || '?';
     document.getElementById('embedResult').style.display = 'block';
 
     // Store for download

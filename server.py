@@ -178,7 +178,7 @@ def api_detect_video():
 
 @app.route("/api/embed", methods=["POST"])
 def api_embed():
-    """Embed a 48-bit watermark into an image."""
+    """Embed a 48-bit watermark into an image, preserving original aspect ratio."""
     if "image" not in request.files:
         return jsonify({"error": "No image file provided"}), 400
     file = request.files["image"]
@@ -187,12 +187,27 @@ def api_embed():
     try:
         img_bytes = file.read()
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        orig_w, orig_h = img.size
 
-        # Save input
+        # ---- Preserve aspect ratio: pad to square ----
+        # Resize so the longer side fits in 256, then pad shorter side to 256
+        import numpy as np
+        scale = 256.0 / max(orig_w, orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Create 256x256 square with black padding
+        img_square = Image.new("RGB", (256, 256), (0, 0, 0))
+        offset_x = (256 - new_w) // 2
+        offset_y = (256 - new_h) // 2
+        img_square.paste(img_resized, (offset_x, offset_y))
+
+        # Save padded square as input for the detector
         tmp_in = _MODULE_DIR / "output" / f"_embed_in_{int(time.time()*1e6)}.jpg"
         tmp_out = _MODULE_DIR / "output" / f"_embed_out_{int(time.time()*1e6)}.png"
+        tmp_out_full = _MODULE_DIR / "output" / f"_embed_full_{int(time.time()*1e6)}.png"
         tmp_in.parent.mkdir(exist_ok=True)
-        img.save(str(tmp_in), "JPEG", quality=95)
+        img_square.save(str(tmp_in), "JPEG", quality=95)
 
         # Embed watermark
         d = get_detector()
@@ -201,28 +216,35 @@ def api_embed():
 
         d.embed(str(tmp_in), str(tmp_out))
 
-        # Verify the embedded image
-        verify = d.detect(str(tmp_out))
+        # ---- Crop back to original aspect ratio ----
+        wm_square = Image.open(str(tmp_out)).convert("RGB")
+        wm_cropped = wm_square.crop((offset_x, offset_y, offset_x + new_w, offset_y + new_h))
+        wm_final = wm_cropped.resize((orig_w, orig_h), Image.LANCZOS)
+        wm_final.save(str(tmp_out_full), "PNG")
 
-        # Build response
-        import numpy as np
-        orig_arr = np.array(img.resize((256, 256))).astype(float)
-        wm_img = Image.open(str(tmp_out)).convert("RGB")
-        wm_arr = np.array(wm_img.resize((256, 256))).astype(float)
+        # Verify the embedded image
+        verify = d.detect(str(tmp_out_full))
+
+        # Calculate PSNR on final output
+        orig_arr = np.array(img).astype(float)
+        wm_arr = np.array(wm_final).astype(float)
         mse = np.mean((orig_arr - wm_arr) ** 2)
         psnr = 20 * np.log10(255) - 10 * np.log10(mse) if mse > 0 else 100
 
         # Read output as base64
-        with open(str(tmp_out), "rb") as f:
+        with open(str(tmp_out_full), "rb") as f:
             out_b64 = base64.b64encode(f.read()).decode()
 
+        dimensions = f"{orig_w} x {orig_h}"
+
         # Cleanup
-        tmp_in.unlink(missing_ok=True)
-        tmp_out.unlink(missing_ok=True)
+        for p in [tmp_in, tmp_out, tmp_out_full]:
+            p.unlink(missing_ok=True)
 
         return jsonify({
             "filename": file.filename,
             "output_base64": f"data:image/png;base64,{out_b64}",
+            "dimensions": dimensions,
             "psnr_db": round(psnr, 1),
             "key": d.key_str,
             "verification": {
