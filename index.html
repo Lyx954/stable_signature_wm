@@ -222,11 +222,11 @@
 
 <!-- Tab bar -->
 <div class="tab-bar">
-  <button class="tab active" data-tab="detect" onclick="switchTab('detect')">
-    <span data-i18n="tab_detect">检测</span>
-  </button>
-  <button class="tab" data-tab="embed" onclick="switchTab('embed')">
+  <button class="tab active" data-tab="embed" onclick="switchTab('embed')">
     <span data-i18n="tab_embed">嵌入水印</span>
+  </button>
+  <button class="tab" data-tab="detect" onclick="switchTab('detect')">
+    <span data-i18n="tab_detect">检测</span>
   </button>
   <button class="tab" data-tab="history" onclick="switchTab('history')" id="historyTab">
     <span data-i18n="tab_history">历史记录</span>
@@ -235,7 +235,7 @@
 </div>
 
 <!-- ===================== EMBED PANEL ===================== -->
-<div class="panel" id="panel-embed">
+<div class="panel active" id="panel-embed">
   <div class="upload-card" id="embedZone" style="max-width:480px;margin:0 auto 16px" onclick="document.getElementById('embedInput').click()"
        ondragover="event.preventDefault();this.classList.add('drag-over')"
        ondragleave="this.classList.remove('drag-over')"
@@ -280,7 +280,7 @@
 </div>
 
 <!-- ===================== DETECT PANEL ===================== -->
-<div class="panel active" id="panel-detect">
+<div class="panel" id="panel-detect">
 
   <div class="upload-row">
     <div class="upload-card" id="imgZone" onclick="document.getElementById('imgInput').click()">
@@ -313,6 +313,11 @@
 <!-- ===================== HISTORY PANEL ===================== -->
 <div class="panel" id="panel-history">
   <div class="history-toolbar">
+    <select id="historyFilter" onchange="loadHistory()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.82rem;background:var(--card)">
+      <option value="all">全部 / All</option>
+      <option value="embed">🏷 嵌入 / Embed</option>
+      <option value="detect">🔍 检测 / Detect</option>
+    </select>
     <button class="btn outline" onclick="loadHistory()" data-i18n="hst_refresh">刷新</button>
     <button class="btn small danger" onclick="clearHistory()" data-i18n="hst_clear_all">清空全部</button>
     <span class="count" id="historyCount"></span>
@@ -354,7 +359,7 @@ const I18N = {
     show_details:'显示详情', hide_details:'隐藏详情',
     video_info:'视频: {n} 帧, {d}s, 采样第 {f} 帧',
     error:'错误', no_files:'请先选择文件',
-    hst_refresh:'刷新', hst_clear_all:'清空全部',
+    hst_refresh:'刷新', hst_clear_all:'清空全部', hst_filter_all:'全部',
     hst_empty:'暂无历史记录', hst_empty_hint:'检测结果将自动保存在这里',
     hst_count:'共 {n} 条',
   },
@@ -665,11 +670,14 @@ function createDetailsHTML(d, key) {
 async function loadHistory() {
   try {
     const data = await (await fetch('/api/history')).json();
+    const filter = document.getElementById('historyFilter')?.value || 'all';
+    const filtered = filter === 'all' ? data : data.filter(d =>
+      filter === 'embed' ? d.type === 'embed' : d.type !== 'embed');
     const list = document.getElementById('historyList');
-    if (data.length === 0) {
+    if (filtered.length === 0) {
       list.innerHTML = `<div class="history-empty"><div class="icon">&#128218;</div><div>${t('hst_empty')}</div></div>`;
     } else {
-      list.innerHTML = data.map((d,i) => `
+      list.innerHTML = filtered.map((d,i) => `
         <div class="history-card" onclick="showHistoryDetail('${d.id}')">
           <img class="history-thumb" src="${d.thumb||d.preview||''}" alt="">
           <div class="history-info">
