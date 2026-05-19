@@ -536,15 +536,6 @@ function createDetailsHTML(d, key) {
     }
     html += `</div>`;
   }
-  // Attacks
-  const attacks = d.attack_results || {};
-  if (Object.keys(attacks).length > 0) {
-    html += `<div class="section-label">${t('attacks_title')}</div>`;
-    for (const [name, acc] of Object.entries(attacks)) {
-      const pct = (acc*100).toFixed(1);
-      html += `<div class="attack-row"><span class="attack-name">${name}</span><div class="attack-bar"><div class="attack-bar-fill ${acc>0.85?'high':(acc>0.7?'mid':'low')}" style="width:${pct}%"></div></div><span class="attack-val">${pct}%</span></div>`;
-    }
-  }
   return html;
 }
 
