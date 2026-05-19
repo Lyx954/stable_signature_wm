@@ -237,6 +237,9 @@ def api_embed():
 
         dimensions = f"{orig_w} x {orig_h}"
 
+        attack_results = verify.attack_results if hasattr(verify, 'attack_results') and verify.attack_results else {}
+        attacks_out = {k: round(v, 4) for k, v in attack_results.items() if v is not None}
+
         # ---- Save to history ----
         history_entry = {
             "filename": file.filename,
@@ -259,9 +262,6 @@ def api_embed():
         # Cleanup
         for p in [tmp_in, tmp_out, tmp_out_full]:
             p.unlink(missing_ok=True)
-
-        attack_results = verify.attack_results if hasattr(verify, 'attack_results') and verify.attack_results else {}
-        attacks_out = {k: round(v, 4) for k, v in attack_results.items() if v is not None}
 
         return jsonify({
             "filename": file.filename,
