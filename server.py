@@ -204,5 +204,6 @@ def index():
 
 
 if __name__ == "__main__":
-    print(f"[Server] http://127.0.0.1:7860")
-    app.run(host="127.0.0.1", port=7860, debug=False)
+    port = int(os.environ.get("PORT", 7860))
+    print(f"[Server] http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)
