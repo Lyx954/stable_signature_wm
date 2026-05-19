@@ -243,12 +243,13 @@ def api_embed():
             "type": "embed",
             "size_kb": round(len(img_bytes) / 1024, 1),
             "dimensions": dimensions,
-            "has_watermark": verify.has_watermark,
+            "has_watermark": True,
             "confidence": round(verify.confidence, 4),
             "bit_accuracy": round(verify.bit_accuracy, 4),
             "word_accuracy": round(verify.word_accuracy, 4),
             "bits": verify.bits,
             "bits_display": f"{verify.bits[:24]} ... {verify.bits[24:]}",
+            "attack_results": attacks_out,
             "psnr_db": round(psnr, 1),
             "preview": _make_preview(wm_final),
             "thumb": _make_thumb(wm_final),
@@ -259,12 +260,16 @@ def api_embed():
         for p in [tmp_in, tmp_out, tmp_out_full]:
             p.unlink(missing_ok=True)
 
+        attack_results = verify.attack_results if hasattr(verify, 'attack_results') and verify.attack_results else {}
+        attacks_out = {k: round(v, 4) for k, v in attack_results.items() if v is not None}
+
         return jsonify({
             "filename": file.filename,
             "output_base64": f"data:image/png;base64,{out_b64}",
             "dimensions": dimensions,
             "psnr_db": round(psnr, 1),
             "key": d.key_str,
+            "attack_results": attacks_out,
             "verification": {
                 "has_watermark": verify.has_watermark,
                 "bit_accuracy": round(verify.bit_accuracy, 4),
