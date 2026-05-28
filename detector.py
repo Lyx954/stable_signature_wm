@@ -121,7 +121,9 @@ class WatermarkDetector:
         if self._loaded:
             return
         print(f"[WatermarkDetector] Loading msg_decoder on {self.device}...")
-        self.msg_decoder = torch.jit.load(str(self.msg_decoder_path)).to(self.device)
+        self.msg_decoder = torch.jit.load(
+            str(self.msg_decoder_path), map_location=self.device
+        ).to(self.device)
         self.msg_decoder.eval()
 
         self.key = torch.tensor(
