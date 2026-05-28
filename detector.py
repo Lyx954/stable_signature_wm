@@ -167,7 +167,7 @@ class WatermarkDetector:
 
         # 1. Message decoder (always needed, ~1.2MB)
         print("  [1/3] Message decoder...")
-        self.msg_decoder = torch.jit.load(str(self.msg_decoder_path)).to(self.device)
+        self.msg_decoder = torch.jit.load(str(self.msg_decoder_path), map_location=str(self.device))
         self.msg_decoder.eval()
 
         # 2. SD2.1 VAE (~5GB, needed for embedding path and attack testing)
@@ -190,7 +190,7 @@ class WatermarkDetector:
             self.ldm_decoder.to(self.device)
             self.ldm_decoder.encoder = nn.Identity()
             self.ldm_decoder.quant_conv = nn.Identity()
-            ckpt = torch.load(str(self.finetune_ckpt), map_location="cpu")
+            ckpt = torch.load(str(self.finetune_ckpt), map_location="cpu", weights_only=False)
             self.ldm_decoder.load_state_dict(ckpt["ldm_decoder"], strict=False)
             self.ldm_decoder.eval()
         else:
@@ -215,6 +215,30 @@ class WatermarkDetector:
 
         self._loaded = True
         print("[WatermarkDetector] Ready.")
+
+    def decode_key(self, bits_str=None):
+        """Decode 48-bit key into structured metadata via key_schema."""
+        try:
+            import key_schema
+            key = bits_str or self.key_str
+            info = key_schema.decode_key(key)
+            return info.to_dict() if info.is_valid else None
+        except Exception:
+            return None
+
+    def describe_key(self):
+        """Human-readable description of the current key."""
+        try:
+            import key_schema
+            info = key_schema.decode_key(self.key_str)
+            if info.is_valid:
+                return (f"[v{info.version}] {info.model_name} | "
+                        f"{info.date.isoformat()} | "
+                        f"User:{info.user_name} | "
+                        f"Type:{info.content_name}")
+            return "(non-structured key)"
+        except Exception:
+            return "(key_schema not available)"
 
     # ------------------------------------------------------------------
     # Image detection
